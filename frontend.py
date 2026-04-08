@@ -48,6 +48,24 @@ def test_backend():
     except:
         return False, "🔴 Backend Offline (Check Terminal)"
 
+def add_stock(name, quantity, category):
+    try:
+        # We send a POST request to the Vercel URL
+        response = requests.post(
+            f"{API_BASE}/stocks", 
+            json={
+                "name": name,
+                "quantity": int(quantity),
+                "category": category,
+                "role": st.session_state.role # IMPORTANT: Must send the role!
+            },
+            timeout=10
+        )
+        return response.status_code == 201
+    except Exception as e:
+        st.error(f"Connection Error: {e}")
+        return False
+
 def get_stocks():
     try:
         resp = requests.get(f"{API_BASE}/stocks", timeout=15)
