@@ -81,17 +81,23 @@ with st.spinner('Fetching cloud data...'):
     stocks = get_stocks()
     history = get_history()
 
-# --- INITIALIZE DATAFRAMES (Prevents NameError) ---
+# --- INITIALIZE DATAFRAMES (Robust Version) ---
 df_stocks = pd.DataFrame(columns=['name', 'quantity', 'category'])
 df_history = pd.DataFrame(columns=['date_time', 'stock_name', 'quantity', 'person'])
 
 if history:
     df_history = pd.DataFrame(history)
-    # Convert UTC/ISO string to Pandas Datetime
-    df_history['date_time'] = pd.to_datetime(df_history['date_time'])
-    # Format for IST Display: 12-hour clock with AM/PM
-    df_history['display_time'] = df_history['date_time'].dt.strftime('%d %b, %I:%M %p')
-    df_history['stock_name'] = df_history['stock_name'].str.title()
+    # FIX: errors='coerce' turns invalid dates into NaT instead of crashing
+    df_history['date_time'] = pd.to_datetime(df_history['date_time'], errors='coerce')
+    # Remove rows where date_time could not be parsed
+    df_history = df_history.dropna(subset=['date_time'])
+    
+    if not df_history.empty:
+        # Sort by newest first
+        df_history = df_history.sort_values(by='date_time', ascending=False)
+        # Format for IST Display
+        df_history['display_time'] = df_history['date_time'].dt.strftime('%d %b, %I:%M %p')
+        df_history['stock_name'] = df_history['stock_name'].str.title()
 
 # ---------------- MAIN CONTENT ---------------- #
 col_left, col_right = st.columns([2, 1.2])
@@ -101,7 +107,6 @@ with col_left:
     
     # DOWNLOAD TRANSACTION REPORT
     if not df_history.empty:
-        # Create CSV content from the history data
         csv_data = df_history[['date_time', 'stock_name', 'quantity', 'person']].to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download Transaction Report (CSV)",
@@ -114,9 +119,7 @@ with col_left:
         st.info("No items found. Database is empty.")
     else:
         df_raw = pd.DataFrame(stocks)
-        # Normalize for grouping
         df_raw['name'] = df_raw['name'].astype(str).str.strip().str.lower()
-        # Merge duplicates and sum quantities
         df_stocks = df_raw.groupby('name').agg({'quantity': 'sum', 'category': 'first'}).reset_index()
 
         search = st.text_input("🔍 Search items...", placeholder="e.g. Battery").strip().lower()
@@ -128,7 +131,6 @@ with col_left:
             q = row['quantity']
             display_name = row['name'].title()
             
-            # Status styling
             bg_color = "#d4edda" if q > 5 else "#fff3cd" if q > 0 else "#f8d7da"
             border = "green" if q > 5 else "orange" if q > 0 else "red"
             
@@ -146,7 +148,6 @@ with col_left:
 with col_right:
     st.subheader("📋 Recent Transactions")
     if not df_history.empty:
-        # Show specific columns in the requested order
         st.dataframe(
             df_history[['display_time', 'stock_name', 'quantity', 'person']], 
             height=500, 
@@ -191,7 +192,6 @@ with t2:
         staff = c1.selectbox("Person", PERSON_LIST + ["Other"])
         if staff == "Other": staff = st.text_input("Enter Name")
         
-        # Pull clean list of items for the dropdown
         available_names = sorted(df_stocks['name'].tolist()) if not df_stocks.empty else []
         target_item = c2.selectbox("Select Item", available_names, format_func=lambda x: x.title())
         remove_qty = c3.number_input("Quantity to Remove", min_value=1)
