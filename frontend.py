@@ -33,19 +33,12 @@ if not st.session_state.logged_in:
                 st.success("Login successful!")
                 st.rerun()
             else:
-                st.error("Invalid credentials.")
+                st.error("Invalid credentials. Try admin / admin123")
         except Exception as e:
             st.error(f"Could not connect to Backend: {e}")
     st.stop()
 
 # ---------------- BACKEND UTILITIES ---------------- #
-def test_backend():
-    try:
-        resp = requests.get(f"{API_BASE}/stocks", timeout=10)
-        return (True, "🟢 Cloud API Live") if resp.status_code == 200 else (False, "🔴 API Error")
-    except:
-        return False, "🔴 Backend Offline"
-
 def get_stocks():
     try:
         resp = requests.get(f"{API_BASE}/stocks", timeout=15)
@@ -60,11 +53,29 @@ def get_history():
     except:
         return []
 
-# ---------------- SIDEBAR & STATUS ---------------- #
-backend_ok, backend_status = test_backend()
+# ---------------- SIDEBAR & RESET LOGIC ---------------- #
 st.sidebar.title("Settings")
 st.sidebar.info(f"User Role: **{st.session_state.role.upper() if st.session_state.role else 'NONE'}**")
-st.sidebar.markdown(f"Status: {backend_status}")
+
+# --- THE RESET BUTTON SECTION ---
+if st.session_state.role == "admin":
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("⚠️ Admin Tools")
+    
+    # Safety Checkbox
+    confirm_reset = st.sidebar.checkbox("Confirm: Wipe all data")
+    
+    if st.sidebar.button("Reset Cloud Database", help="This deletes all stocks and history", disabled=not confirm_reset):
+        try:
+            # Note: The endpoint matches the one we added to app.py
+            res = requests.post(f"{API_BASE}/admin/clear", json={"role": "admin"}, timeout=15)
+            if res.status_code == 200:
+                st.sidebar.success("Database Cleared!")
+                st.rerun()
+            else:
+                st.sidebar.error(f"Error: {res.status_code}")
+        except Exception as e:
+            st.sidebar.error(f"Connection Error: {e}")
 
 if st.sidebar.button("Logout"):
     st.session_state.logged_in = False
@@ -83,22 +94,14 @@ col_left, col_right = st.columns([2, 1.2])
 with col_left:
     st.subheader("📦 Current Stock")
     if not stocks:
-        st.info("No items found.")
+        st.info("No items found. Add items to see them here.")
     else:
         df_raw = pd.DataFrame(stocks)
-        
-        # --- THE SYNC FIX: Grouping multiple entries into one ---
-        # Normalize names to lowercase and strip whitespace
+        # Force grouping so items show only once
         df_raw['name'] = df_raw['name'].astype(str).str.strip().str.lower()
-        
-        # Group by name and sum the quantities
-        df_stocks = df_raw.groupby('name').agg({
-            'quantity': 'sum',
-            'category': 'first' # Take the first category found
-        }).reset_index()
+        df_stocks = df_raw.groupby('name').agg({'quantity': 'sum', 'category': 'first'}).reset_index()
 
         search = st.text_input("🔍 Search items...", placeholder="e.g. Battery").strip().lower()
-        
         filtered = df_stocks
         if search:
             filtered = df_stocks[df_stocks['name'].str.contains(search)]
@@ -106,8 +109,6 @@ with col_left:
         for _, row in filtered.iterrows():
             q = row['quantity']
             display_name = row['name'].title()
-            
-            # Dynamic colors based on total grouped quantity
             bg_color = "#d4edda" if q > 5 else "#fff3cd" if q > 0 else "#f8d7da"
             border = "green" if q > 5 else "orange" if q > 0 else "red"
             
@@ -151,16 +152,15 @@ if t1:
                 if not new_item_name:
                     st.warning("Please enter an item name.")
                 else:
-                    clean_name = new_item_name.strip().lower()
                     payload = {
-                        "name": clean_name, 
+                        "name": new_item_name.strip().lower(), 
                         "quantity": int(new_item_qty), 
                         "category": new_item_cat, 
                         "role": st.session_state.role
                     }
                     res = requests.post(f"{API_BASE}/stocks", json=payload, timeout=15)
                     if res.status_code in [200, 201]:
-                        st.success(f"Synced {clean_name.title()}!")
+                        st.success(f"Synced {new_item_name.title()}!")
                         st.rerun()
                     else:
                         st.error("Upload failed.")
@@ -171,9 +171,7 @@ with t2:
         staff = c1.selectbox("Person", PERSON_LIST + ["Other"])
         if staff == "Other": staff = st.text_input("Enter Name")
         
-        # Use the names from the grouped dataframe
         available_names = sorted(df_stocks['name'].tolist()) if not df_stocks.empty else []
-        
         target_item = c2.selectbox("Select Item", available_names, format_func=lambda x: x.title())
         remove_qty = c3.number_input("Quantity to Remove", min_value=1)
         
