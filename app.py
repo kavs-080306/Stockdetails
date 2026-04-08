@@ -25,8 +25,8 @@ except Exception as e:
 
 # ---------------- AUTH DATA ---------------- #
 users = [
-    {"username": "ganesh", "password": hashlib.sha256("gane333".encode()).hexdigest(), "role": "admin"},
-    {"username": "silver", "password": hashlib.sha256("sss1371".encode()).hexdigest(), "role": "user"}
+    {"username": "Ganesh", "password": hashlib.sha256("gane333".encode()).hexdigest(), "role": "admin"},
+    {"username": "Silver", "password": hashlib.sha256("sss1371".encode()).hexdigest(), "role": "user"}
 ]
 
 # ---------------- ROUTES ---------------- #
