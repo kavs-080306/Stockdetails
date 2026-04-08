@@ -9,6 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ---------------- MONGODB SETUP ---------------- #
+# Using your provided URI
 MONGO_URI = "mongodb+srv://kavs080306_db_user:StockAdmin123@stockdetails.jrzc143.mongodb.net/?appName=StockDetails"
 
 try:
@@ -17,11 +18,14 @@ try:
     stocks_col = db['stocks']
     history_col = db['history']
     
+    # Connection Test
     client.admin.command('ping')
     print("✅ Connected to MongoDB Cloud!")
 
 except Exception as e:
+    print("--------------------------------------------------")
     print(f"❌ DATABASE ERROR: {e}")
+    print("--------------------------------------------------")
 
 # ---------------- AUTH DATA ---------------- #
 users = [
@@ -30,6 +34,10 @@ users = [
 ]
 
 # ---------------- ROUTES ---------------- #
+
+@app.route('/')
+def home():
+    return "Office Stock Cloud Backend is Running 🚀"
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -46,7 +54,6 @@ def login():
 @app.route('/api/stocks', methods=['GET', 'POST'])
 def handle_stocks():
     if request.method == 'GET':
-        # Retrieve all items
         all_stocks = list(stocks_col.find({}, {'_id': 0}))
         return jsonify({'stocks': all_stocks})
 
@@ -55,12 +62,12 @@ def handle_stocks():
         return jsonify({'error': 'Unauthorized: Admin only'}), 403
 
     try:
-        # SYNC LOGIC: Force name to lowercase and remove accidental spaces
+        # --- SYNC & NORMALIZATION ---
+        # Ensures "Battery" and "battery" are treated as the same entry
         item_name = str(data['name']).strip().lower()
         item_qty = int(data['quantity'])
 
-        # update_one with upsert=True is the 'Secret Sauce'
-        # It finds the lowercase entry; if found, it adds quantity. If not, it creates it.
+        # update_one with upsert=True merges quantities into a single product record
         stocks_col.update_one(
             {"name": item_name},
             {
@@ -72,7 +79,7 @@ def handle_stocks():
             },
             upsert=True
         )
-        return jsonify({'message': 'Stock synced successfully'}), 201
+        return jsonify({'message': 'Stock updated successfully'}), 201
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -85,41 +92,56 @@ def remove_stock():
     if role not in ['admin', 'user']:
         return jsonify({'error': 'Unauthorized'}), 403
 
-    # Normalize name for removal as well
+    # Normalize name for accurate lookup
     name = str(data['name']).strip().lower()
     qty_to_remove = int(data['quantity'])
 
-    # Find the single synced product
     item = stocks_col.find_one({"name": name})
     
     if item and item['quantity'] >= qty_to_remove:
+        # Decrease stock count
         stocks_col.update_one(
             {"name": name},
             {"$inc": {"quantity": -qty_to_remove}}
         )
 
+        # Log to transaction history
         history_col.insert_one({
             'date_time': datetime.now().isoformat(),
-            'stock_name': name, # Stored as lowercase for clean history
+            'stock_name': name,
             'quantity': qty_to_remove,
             'person': data.get('person', 'Unknown'),
             'action': 'REMOVE'
         })
-        return jsonify({'message': 'Stock removed'})
+        return jsonify({'message': 'Stock removed successfully'})
 
     return jsonify({'error': 'Insufficient stock available'}), 400
 
 @app.route('/api/history', methods=['GET'])
 def get_history():
+    # Returns last 50 transactions, newest first
     logs = list(history_col.find({}, {'_id': 0}).sort('date_time', -1).limit(50))
     return jsonify(logs)
 
-@app.route('/')
-def home():
-    return "Office Stock Cloud Backend is Running 🚀"
+# ---------------- RESET ROUTE ---------------- #
+@app.route('/api/admin/clear', methods=['POST'])
+def clear_database():
+    data = request.json
+    # Strict admin-only check
+    if not data or data.get('role') != 'admin':
+        return jsonify({"error": "Unauthorized: Admin access required"}), 403
 
-# Vercel deployment requirement
+    try:
+        # Delete everything from both collections
+        stocks_col.delete_many({})
+        history_col.delete_many({})
+        return jsonify({"message": "Database cleared successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Required for Vercel deployment
 app = app
 
 if __name__ == '__main__':
+    # Run locally for testing
     app.run(host='0.0.0.0', port=5000, debug=True)
