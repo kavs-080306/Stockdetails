@@ -88,6 +88,10 @@ with st.spinner('Fetching cloud data...'):
     stocks = get_stocks()
     history = get_history()
 
+# --- CRITICAL FIX: Initialize df_stocks with a default value ---
+# This prevents the NameError if the 'if stocks' block is skipped
+df_stocks = pd.DataFrame(columns=['name', 'quantity', 'category'])
+
 # ---------------- MAIN CONTENT ---------------- #
 col_left, col_right = st.columns([2, 1.2])
 
@@ -99,7 +103,12 @@ with col_left:
         df_raw = pd.DataFrame(stocks)
         # Force grouping so items show only once
         df_raw['name'] = df_raw['name'].astype(str).str.strip().str.lower()
-        df_stocks = df_raw.groupby('name').agg({'quantity': 'sum', 'category': 'first'}).reset_index()
+        
+        # Overwrite the empty df_stocks with real data
+        df_stocks = df_raw.groupby('name').agg({
+            'quantity': 'sum', 
+            'category': 'first'
+        }).reset_index()
 
         search = st.text_input("🔍 Search items...", placeholder="e.g. Battery").strip().lower()
         filtered = df_stocks
@@ -119,17 +128,6 @@ with col_left:
                     <p style="font-size: 20px; font-weight: bold; margin: 5px 0;">Total Qty: {q}</p>
                 </div>
             """, unsafe_allow_html=True)
-
-with col_right:
-    st.subheader("📋 Recent History")
-    if history:
-        df_h = pd.DataFrame(history)
-        df_h['date_time'] = pd.to_datetime(df_h['date_time']).dt.strftime('%b %d, %H:%M')
-        df_h['stock_name'] = df_h['stock_name'].str.title()
-        st.dataframe(df_h[['date_time', 'stock_name', 'quantity', 'person']], height=400, use_container_width=True)
-    else:
-        st.write("No transactions logged.")
-
 # ---------------- ACTIONS (TABS) ---------------- #
 st.markdown("---")
 PERSON_LIST = ["Abul", "Balaji", "Vibin"]
