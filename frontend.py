@@ -3,8 +3,9 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-# Backend API URL
+# 1. YOUR VERCEL URL (Ensure no trailing slash)
 API_BASE = "https://stockdetails.vercel.app/api"
+
 st.set_page_config(page_title="Office Stock Manager", page_icon="📦", layout="wide")
 
 # Session State Initialization
@@ -23,7 +24,7 @@ if not st.session_state.logged_in:
             resp = requests.post(f"{API_BASE}/login", json={
                 "username": username,
                 "password": password
-            }, timeout=10)
+            }, timeout=15)
 
             if resp.status_code == 200:
                 data = resp.json()
@@ -32,7 +33,7 @@ if not st.session_state.logged_in:
                 st.success("Login successful!")
                 st.rerun()
             else:
-                st.error("Invalid credentials")
+                st.error("Invalid credentials. Try admin / admin123")
         except Exception as e:
             st.error(f"Could not connect to Backend: {e}")
     st.stop()
@@ -40,43 +41,28 @@ if not st.session_state.logged_in:
 # ---------------- BACKEND UTILITIES ---------------- #
 def test_backend():
     try:
-        # Increase timeout for cloud wake-up
         resp = requests.get(f"{API_BASE}/stocks", timeout=10)
         if resp.status_code == 200:
             return True, "🟢 Cloud API Live"
         return False, f"🔴 API Error {resp.status_code}"
     except:
-        return False, "🔴 Backend Offline (Check Terminal)"
-
-def add_stock(name, quantity, category):
-    try:
-        # We send a POST request to the Vercel URL
-        response = requests.post(
-            f"{API_BASE}/stocks", 
-            json={
-                "name": name,
-                "quantity": int(quantity),
-                "category": category,
-                "role": st.session_state.role # IMPORTANT: Must send the role!
-            },
-            timeout=10
-        )
-        return response.status_code == 201
-    except Exception as e:
-        st.error(f"Connection Error: {e}")
-        return False
+        return False, "🔴 Backend Offline (Vercel Sleeping?)"
 
 def get_stocks():
     try:
         resp = requests.get(f"{API_BASE}/stocks", timeout=15)
-        return resp.json().get('stocks', []) if resp.status_code == 200 else []
+        if resp.status_code == 200:
+            return resp.json().get('stocks', [])
+        return []
     except:
         return []
 
 def get_history():
     try:
         resp = requests.get(f"{API_BASE}/history", timeout=15)
-        return resp.json() if resp.status_code == 200 else []
+        if resp.status_code == 200:
+            return resp.json()
+        return []
     except:
         return []
 
@@ -103,17 +89,14 @@ col1, col2, col3, col4 = st.columns(4)
 col1.metric("📦 Total Items", len(stocks))
 col2.metric("📊 In Stock", len([s for s in stocks if s.get('quantity', 0) > 0]))
 col3.metric("📈 Transactions", len(history))
-col4.metric("👥 Staff Active", len(set([h.get('person', 'Unknown') for h in history])))
 
-st.markdown("---")
-
-# Main Content
+# ---------------- MAIN CONTENT ---------------- #
 col_left, col_right = st.columns([2, 1.2])
 
 with col_left:
     st.subheader("📦 Current Stock")
     if not stocks:
-        st.info("No items found. Add items in the Add Stock tab.")
+        st.info("No items found. Add items using the form below.")
     else:
         df_stocks = pd.DataFrame(stocks)
         search = st.text_input("🔍 Search items...", placeholder="e.g. Pens")
@@ -129,8 +112,8 @@ with col_left:
             
             st.markdown(f"""
                 <div style="background-color: {bg_color}; padding: 15px; border-radius: 8px; 
-                            border-left: 8px solid {border}; margin-bottom: 10px;">
-                    <h4 style="margin:0;">{row['name']} <small style="color: #666;">({row.get('category', 'General')})</small></h4>
+                            border-left: 8px solid {border}; margin-bottom: 10px; color: black;">
+                    <h4 style="margin:0;">{row['name']} <small style="color: #444;">({row.get('category', 'General')})</small></h4>
                     <p style="font-size: 20px; font-weight: bold; margin: 5px 0;">Qty: {q}</p>
                 </div>
             """, unsafe_allow_html=True)
@@ -139,17 +122,16 @@ with col_right:
     st.subheader("📋 Recent History")
     if history:
         df_h = pd.DataFrame(history)
-        # Clean dates for display
         df_h['date_time'] = pd.to_datetime(df_h['date_time']).dt.strftime('%b %d, %H:%M')
         st.dataframe(df_h[['date_time', 'stock_name', 'quantity', 'person']], height=400, use_container_width=True)
     else:
         st.write("No transactions logged.")
 
-# ---------------- ACTIONS ---------------- #
+# ---------------- ACTIONS (TABS) ---------------- #
 st.markdown("---")
 PERSON_LIST = ["Abul", "Balaji", "Vibin"]
 
-# Tabs based on permissions
+# Admin can Add and Remove; User can only Remove
 if st.session_state.role == "admin":
     t1, t2 = st.tabs(["➕ Add Stock", "➖ Remove Stock"])
 else:
@@ -158,36 +140,58 @@ else:
 
 if t1:
     with t1:
-        with st.form("add_stock"):
+        with st.form("add_stock_form"):
             c1, c2, c3 = st.columns(3)
-            n = c1.text_input("Item Name")
-            q = c2.number_input("Quantity", min_value=1)
-            cat = c3.selectbox("Category", ["Stationery", "Electronics", "Pantry", "General"])
+            item_name = c1.text_input("Item Name")
+            item_qty = c2.number_input("Quantity to Add", min_value=1)
+            item_cat = c3.selectbox("Category", ["Stationery", "Electronics", "Pantry", "General"])
+            
             if st.form_submit_button("Add to Cloud"):
-                res = requests.post(f"{API_BASE}/stocks", json={
-                    "name": n, "quantity": q, "category": cat, "role": "admin"
-                }, timeout=15)
-                if res.status_code == 201 or res.status_code == 200:
-                    st.success("Cloud Updated!")
-                    st.rerun()
+                if not item_name:
+                    st.warning("Please enter an item name.")
+                else:
+                    payload = {
+                        "name": item_name, 
+                        "quantity": int(item_qty), 
+                        "category": item_cat, 
+                        "role": st.session_state.role
+                    }
+                    res = requests.post(f"{API_BASE}/stocks", json=payload, timeout=15)
+                    
+                    if res.status_code in [200, 201]:
+                        st.success(f"Added {item_qty} {item_name}!")
+                        st.rerun()
+                    else:
+                        st.error(f"Failed: {res.json().get('error', 'Unknown Error')}")
 
 with t2:
-    with st.form("remove_stock"):
+    with st.form("remove_stock_form"):
         c1, c2, c3 = st.columns(3)
-        p = c1.selectbox("Person", PERSON_LIST + ["Other"])
-        if p == "Other": p = st.text_input("Name")
+        staff_member = c1.selectbox("Person", PERSON_LIST + ["Other"])
+        if staff_member == "Other": 
+            staff_member = st.text_input("Enter Name")
         
-        # Get list of names for dropdown
-        s_names = [s['name'] for s in stocks] if stocks else ["No items"]
-        item = c2.selectbox("Item", s_names)
-        amt = c3.number_input("How many?", min_value=1)
+        # Dropdown of existing stock items
+        available_items = [s['name'] for s in stocks] if stocks else ["No items"]
+        item_to_remove = c2.selectbox("Select Item", available_items)
+        qty_to_remove = c3.number_input("Quantity to Remove", min_value=1)
         
         if st.form_submit_button("Confirm Removal"):
-            res = requests.post(f"{API_BASE}/stocks/remove", json={
-                "name": item, "quantity": amt, "person": p, "role": st.session_state.role
-            }, timeout=15)
-            if res.status_code == 200:
-                st.success(f"Removed {amt} {item}")
-                st.rerun()
+            if not stocks:
+                st.error("No items available to remove.")
             else:
-                st.error(res.json().get('error', 'Failed'))
+                payload = {
+                    "name": item_to_remove, 
+                    "quantity": int(qty_to_remove), 
+                    "person": staff_member, 
+                    "role": st.session_state.role
+                }
+                # Backend route for removal is /api/stocks/remove
+                res = requests.post(f"{API_BASE}/stocks/remove", json=payload, timeout=15)
+                
+                if res.status_code == 200:
+                    st.success(f"Successfully removed {qty_to_remove} {item_to_remove}")
+                    st.rerun()
+                else:
+                    error_msg = res.json().get('error', 'Insufficient stock or error')
+                    st.error(f"Failed: {error_msg}")
