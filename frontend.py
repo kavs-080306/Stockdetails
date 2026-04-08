@@ -85,7 +85,7 @@ with st.spinner('Fetching cloud data...'):
     history = get_history()
 
 # Metrics
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3 = st.columns(3)
 col1.metric("📦 Total Items", len(stocks))
 col2.metric("📊 In Stock", len([s for s in stocks if s.get('quantity', 0) > 0]))
 col3.metric("📈 Transactions", len(history))
@@ -107,13 +107,16 @@ with col_left:
             
         for _, row in filtered.iterrows():
             q = row['quantity']
+            # UI logic: Show name in Title Case even if stored in lowercase
+            display_name = str(row['name']).title()
+            
             bg_color = "#d4edda" if q > 5 else "#fff3cd" if q > 0 else "#f8d7da"
             border = "green" if q > 5 else "orange" if q > 0 else "red"
             
             st.markdown(f"""
                 <div style="background-color: {bg_color}; padding: 15px; border-radius: 8px; 
                             border-left: 8px solid {border}; margin-bottom: 10px; color: black;">
-                    <h4 style="margin:0;">{row['name']} <small style="color: #444;">({row.get('category', 'General')})</small></h4>
+                    <h4 style="margin:0;">{display_name} <small style="color: #444;">({row.get('category', 'General')})</small></h4>
                     <p style="font-size: 20px; font-weight: bold; margin: 5px 0;">Qty: {q}</p>
                 </div>
             """, unsafe_allow_html=True)
@@ -123,6 +126,8 @@ with col_right:
     if history:
         df_h = pd.DataFrame(history)
         df_h['date_time'] = pd.to_datetime(df_h['date_time']).dt.strftime('%b %d, %H:%M')
+        # Format the history names for the UI
+        df_h['stock_name'] = df_h['stock_name'].str.title()
         st.dataframe(df_h[['date_time', 'stock_name', 'quantity', 'person']], height=400, use_container_width=True)
     else:
         st.write("No transactions logged.")
@@ -131,7 +136,6 @@ with col_right:
 st.markdown("---")
 PERSON_LIST = ["Abul", "Balaji", "Vibin"]
 
-# Admin can Add and Remove; User can only Remove
 if st.session_state.role == "admin":
     t1, t2 = st.tabs(["➕ Add Stock", "➖ Remove Stock"])
 else:
@@ -150,8 +154,9 @@ if t1:
                 if not item_name:
                     st.warning("Please enter an item name.")
                 else:
+                    # SYNC FIX: Force lowercase and strip spaces before sending
                     payload = {
-                        "name": item_name, 
+                        "name": item_name.strip().lower(), 
                         "quantity": int(item_qty), 
                         "category": item_cat, 
                         "role": st.session_state.role
@@ -159,7 +164,7 @@ if t1:
                     res = requests.post(f"{API_BASE}/stocks", json=payload, timeout=15)
                     
                     if res.status_code in [200, 201]:
-                        st.success(f"Added {item_qty} {item_name}!")
+                        st.success(f"Successfully synced {item_name.title()}!")
                         st.rerun()
                     else:
                         st.error(f"Failed: {res.json().get('error', 'Unknown Error')}")
@@ -171,26 +176,28 @@ with t2:
         if staff_member == "Other": 
             staff_member = st.text_input("Enter Name")
         
-        # Dropdown of existing stock items
-        available_items = [s['name'] for s in stocks] if stocks else ["No items"]
-        item_to_remove = c2.selectbox("Select Item", available_items)
+        # Dropdown of existing stock items (formatted as Title Case for user, but we'll use raw name for logic)
+        available_items = [s['name'] for s in stocks] if stocks else []
+        
+        # Display as Title Case in selectbox using format_func
+        item_to_remove = c2.selectbox("Select Item", available_items, format_func=lambda x: x.title())
         qty_to_remove = c3.number_input("Quantity to Remove", min_value=1)
         
         if st.form_submit_button("Confirm Removal"):
-            if not stocks:
+            if not item_to_remove:
                 st.error("No items available to remove.")
             else:
+                # SYNC FIX: Ensure the removal request uses the clean lowercase name
                 payload = {
-                    "name": item_to_remove, 
+                    "name": item_to_remove.strip().lower(), 
                     "quantity": int(qty_to_remove), 
                     "person": staff_member, 
                     "role": st.session_state.role
                 }
-                # Backend route for removal is /api/stocks/remove
                 res = requests.post(f"{API_BASE}/stocks/remove", json=payload, timeout=15)
                 
                 if res.status_code == 200:
-                    st.success(f"Successfully removed {qty_to_remove} {item_to_remove}")
+                    st.success(f"Successfully removed {qty_to_remove} {item_to_remove.title()}")
                     st.rerun()
                 else:
                     error_msg = res.json().get('error', 'Insufficient stock or error')
