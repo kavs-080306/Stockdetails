@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 
 # Backend API URL
-API_BASE = "http://127.0.0.1:5000/api"
+API_BASE = "https://stockdetails.vercel.app/api"
 st.set_page_config(page_title="Office Stock Manager", page_icon="📦", layout="wide")
 
 # Session State Initialization
