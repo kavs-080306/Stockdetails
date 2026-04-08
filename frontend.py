@@ -33,7 +33,7 @@ if not st.session_state.logged_in:
                 st.success("Login successful!")
                 st.rerun()
             else:
-                st.error("Invalid credentials. Try admin / admin123")
+                st.error("Invalid credentials.")
         except Exception as e:
             st.error(f"Could not connect to Backend: {e}")
     st.stop()
@@ -53,29 +53,22 @@ def get_history():
     except:
         return []
 
-# ---------------- SIDEBAR & RESET LOGIC ---------------- #
+# ---------------- SIDEBAR & RESET ---------------- #
 st.sidebar.title("Settings")
 st.sidebar.info(f"User Role: **{st.session_state.role.upper() if st.session_state.role else 'NONE'}**")
 
-# --- THE RESET BUTTON SECTION ---
 if st.session_state.role == "admin":
     st.sidebar.markdown("---")
     st.sidebar.subheader("⚠️ Admin Tools")
-    
-    # Safety Checkbox
     confirm_reset = st.sidebar.checkbox("Confirm: Wipe all data")
-    
-    if st.sidebar.button("Reset Cloud Database", help="This deletes all stocks and history", disabled=not confirm_reset):
+    if st.sidebar.button("Reset Cloud Database", disabled=not confirm_reset):
         try:
-            # Note: The endpoint matches the one we added to app.py
             res = requests.post(f"{API_BASE}/admin/clear", json={"role": "admin"}, timeout=15)
             if res.status_code == 200:
                 st.sidebar.success("Database Cleared!")
                 st.rerun()
-            else:
-                st.sidebar.error(f"Error: {res.status_code}")
-        except Exception as e:
-            st.sidebar.error(f"Connection Error: {e}")
+        except:
+            st.sidebar.error("Connection Error")
 
 if st.sidebar.button("Logout"):
     st.session_state.logged_in = False
@@ -88,27 +81,37 @@ with st.spinner('Fetching cloud data...'):
     stocks = get_stocks()
     history = get_history()
 
-# --- CRITICAL FIX: Initialize df_stocks with a default value ---
-# This prevents the NameError if the 'if stocks' block is skipped
+# CRITICAL FIX: Always initialize df_stocks to avoid NameError
 df_stocks = pd.DataFrame(columns=['name', 'quantity', 'category'])
+df_history = pd.DataFrame(columns=['date_time', 'stock_name', 'quantity', 'person'])
+
+if history:
+    df_history = pd.DataFrame(history)
+    df_history['date_time'] = pd.to_datetime(df_history['date_time']).dt.strftime('%Y-%m-%d %H:%M')
+    df_history['stock_name'] = df_history['stock_name'].str.title()
 
 # ---------------- MAIN CONTENT ---------------- #
 col_left, col_right = st.columns([2, 1.2])
 
 with col_left:
     st.subheader("📦 Current Stock")
+    
+    # DOWNLOAD SECTION
+    if not df_history.empty:
+        csv = df_history.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Transaction History (CSV)",
+            data=csv,
+            file_name=f"office_stock_report_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime='text/csv',
+        )
+
     if not stocks:
-        st.info("No items found. Add items to see them here.")
+        st.info("No items found.")
     else:
         df_raw = pd.DataFrame(stocks)
-        # Force grouping so items show only once
         df_raw['name'] = df_raw['name'].astype(str).str.strip().str.lower()
-        
-        # Overwrite the empty df_stocks with real data
-        df_stocks = df_raw.groupby('name').agg({
-            'quantity': 'sum', 
-            'category': 'first'
-        }).reset_index()
+        df_stocks = df_raw.groupby('name').agg({'quantity': 'sum', 'category': 'first'}).reset_index()
 
         search = st.text_input("🔍 Search items...", placeholder="e.g. Battery").strip().lower()
         filtered = df_stocks
@@ -128,6 +131,19 @@ with col_left:
                     <p style="font-size: 20px; font-weight: bold; margin: 5px 0;">Total Qty: {q}</p>
                 </div>
             """, unsafe_allow_html=True)
+
+with col_right:
+    st.subheader("📋 Recent Transactions")
+    if not df_history.empty:
+        # Show specific columns requested: Time, Product, Qty, Person
+        st.dataframe(
+            df_history[['date_time', 'stock_name', 'quantity', 'person']], 
+            height=500, 
+            use_container_width=True
+        )
+    else:
+        st.write("No transactions logged.")
+
 # ---------------- ACTIONS (TABS) ---------------- #
 st.markdown("---")
 PERSON_LIST = ["Abul", "Balaji", "Vibin"]
@@ -147,21 +163,10 @@ if t1:
             new_item_cat = c3.selectbox("Category", ["Stationery", "Electronics", "Pantry", "General"])
             
             if st.form_submit_button("Add to Cloud"):
-                if not new_item_name:
-                    st.warning("Please enter an item name.")
-                else:
-                    payload = {
-                        "name": new_item_name.strip().lower(), 
-                        "quantity": int(new_item_qty), 
-                        "category": new_item_cat, 
-                        "role": st.session_state.role
-                    }
-                    res = requests.post(f"{API_BASE}/stocks", json=payload, timeout=15)
-                    if res.status_code in [200, 201]:
-                        st.success(f"Synced {new_item_name.title()}!")
-                        st.rerun()
-                    else:
-                        st.error("Upload failed.")
+                if new_item_name:
+                    payload = {"name": new_item_name.strip().lower(), "quantity": int(new_item_qty), "category": new_item_cat, "role": st.session_state.role}
+                    requests.post(f"{API_BASE}/stocks", json=payload, timeout=15)
+                    st.rerun()
 
 with t2:
     with st.form("remove_stock_form"):
@@ -174,18 +179,7 @@ with t2:
         remove_qty = c3.number_input("Quantity to Remove", min_value=1)
         
         if st.form_submit_button("Confirm Removal"):
-            if not target_item:
-                st.error("No item selected.")
-            else:
-                payload = {
-                    "name": target_item, 
-                    "quantity": int(remove_qty), 
-                    "person": staff, 
-                    "role": st.session_state.role
-                }
-                res = requests.post(f"{API_BASE}/stocks/remove", json=payload, timeout=15)
-                if res.status_code == 200:
-                    st.success(f"Removed {remove_qty} units.")
-                    st.rerun()
-                else:
-                    st.error(res.json().get('error', 'Removal failed'))
+            if target_item:
+                payload = {"name": target_item, "quantity": int(remove_qty), "person": staff, "role": st.session_state.role}
+                requests.post(f"{API_BASE}/stocks/remove", json=payload, timeout=15)
+                st.rerun()
