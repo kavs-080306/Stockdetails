@@ -17,14 +17,11 @@ try:
     stocks_col = db['stocks']
     history_col = db['history']
     
-    # Connection Test
     client.admin.command('ping')
     print("✅ Connected to MongoDB Cloud!")
 
 except Exception as e:
-    print("--------------------------------------------------")
     print(f"❌ DATABASE ERROR: {e}")
-    print("--------------------------------------------------")
 
 # ---------------- AUTH DATA ---------------- #
 users = [
@@ -49,6 +46,7 @@ def login():
 @app.route('/api/stocks', methods=['GET', 'POST'])
 def handle_stocks():
     if request.method == 'GET':
+        # Retrieve all items
         all_stocks = list(stocks_col.find({}, {'_id': 0}))
         return jsonify({'stocks': all_stocks})
 
@@ -57,12 +55,12 @@ def handle_stocks():
         return jsonify({'error': 'Unauthorized: Admin only'}), 403
 
     try:
-        # --- NORMALIZATION STEP ---
-        # .strip() removes spaces, .lower() makes "PENS" and "pens" identical
+        # SYNC LOGIC: Force name to lowercase and remove accidental spaces
         item_name = str(data['name']).strip().lower()
         item_qty = int(data['quantity'])
 
-        # Atomic Update (upsert=True handles new or existing items)
+        # update_one with upsert=True is the 'Secret Sauce'
+        # It finds the lowercase entry; if found, it adds quantity. If not, it creates it.
         stocks_col.update_one(
             {"name": item_name},
             {
@@ -74,7 +72,7 @@ def handle_stocks():
             },
             upsert=True
         )
-        return jsonify({'message': 'Stock updated successfully'}), 201
+        return jsonify({'message': 'Stock synced successfully'}), 201
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -87,10 +85,11 @@ def remove_stock():
     if role not in ['admin', 'user']:
         return jsonify({'error': 'Unauthorized'}), 403
 
-    # Normalize name to ensure we find the record even if typed in different case
+    # Normalize name for removal as well
     name = str(data['name']).strip().lower()
     qty_to_remove = int(data['quantity'])
 
+    # Find the single synced product
     item = stocks_col.find_one({"name": name})
     
     if item and item['quantity'] >= qty_to_remove:
@@ -101,7 +100,7 @@ def remove_stock():
 
         history_col.insert_one({
             'date_time': datetime.now().isoformat(),
-            'stock_name': name,
+            'stock_name': name, # Stored as lowercase for clean history
             'quantity': qty_to_remove,
             'person': data.get('person', 'Unknown'),
             'action': 'REMOVE'
@@ -119,7 +118,7 @@ def get_history():
 def home():
     return "Office Stock Cloud Backend is Running 🚀"
 
-# Vercel needs the app object
+# Vercel deployment requirement
 app = app
 
 if __name__ == '__main__':
