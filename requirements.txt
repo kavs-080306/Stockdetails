@@ -1,2 +1,7 @@
 flask
 pandas
+Flask
+flask-cors
+pymongo
+certifi
+dnspython
