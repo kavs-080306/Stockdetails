@@ -9,8 +9,6 @@ app = Flask(__name__)
 CORS(app)
 
 # ---------------- MONGODB SETUP ---------------- #
-# 1. Replace <password> with your actual database user password
-# 2. Use your actual Cluster ID instead of 'xxxx'
 MONGO_URI = "mongodb+srv://kavs080306_db_user:StockAdmin123@stockdetails.jrzc143.mongodb.net/?appName=StockDetails"
 
 try:
@@ -19,18 +17,13 @@ try:
     stocks_col = db['stocks']
     history_col = db['history']
     
-    # --- STEP 1: FORCE CONNECTION TEST ---
+    # Connection Test
     client.admin.command('ping')
-    print("✅ STEP 1: Connected to MongoDB Cloud!")
-    
-    # --- STEP 2: TEST WRITE ---
-    db.connection_test.insert_one({"message": "Testing Write", "time": datetime.now()})
-    print("✅ STEP 2: Database Write Test Passed!")
+    print("✅ Connected to MongoDB Cloud!")
 
 except Exception as e:
     print("--------------------------------------------------")
     print(f"❌ DATABASE ERROR: {e}")
-    print("Check: 1. Password | 2. IP Whitelist (0.0.0.0/0) | 3. Internet")
     print("--------------------------------------------------")
 
 # ---------------- AUTH DATA ---------------- #
@@ -59,21 +52,18 @@ def handle_stocks():
         all_stocks = list(stocks_col.find({}, {'_id': 0}))
         return jsonify({'stocks': all_stocks})
 
-    # --- STEP 3: DEBUG THE DATA ARRIVING ---
     data = request.json
-    print(f"📥 Incoming Stock Request: {data}")
-
     if data.get('role') != 'admin':
-        print("⛔ BLOCKED: User tried to add stock without Admin role.")
         return jsonify({'error': 'Unauthorized: Admin only'}), 403
 
     try:
-        # Clean data to avoid errors
-        item_name = str(data['name']).strip()
+        # --- NORMALIZATION STEP ---
+        # .strip() removes spaces, .lower() makes "PENS" and "pens" identical
+        item_name = str(data['name']).strip().lower()
         item_qty = int(data['quantity'])
 
-        # Atomic Update
-        result = stocks_col.update_one(
+        # Atomic Update (upsert=True handles new or existing items)
+        stocks_col.update_one(
             {"name": item_name},
             {
                 "$inc": {"quantity": item_qty},
@@ -84,23 +74,21 @@ def handle_stocks():
             },
             upsert=True
         )
-        print(f"💾 Cloud Update Success: {item_name} added.")
         return jsonify({'message': 'Stock updated successfully'}), 201
     
     except Exception as e:
-        print(f"❌ Write Failed: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/stocks/remove', methods=['POST'])
 def remove_stock():
     data = request.json
-    print(f"📤 Outgoing Stock Request: {data}")
-    
     role = data.get('role')
+    
     if role not in ['admin', 'user']:
         return jsonify({'error': 'Unauthorized'}), 403
 
-    name = data['name']
+    # Normalize name to ensure we find the record even if typed in different case
+    name = str(data['name']).strip().lower()
     qty_to_remove = int(data['quantity'])
 
     item = stocks_col.find_one({"name": name})
@@ -118,7 +106,6 @@ def remove_stock():
             'person': data.get('person', 'Unknown'),
             'action': 'REMOVE'
         })
-        print(f"✅ Removal Logged: {name} taken by {data.get('person')}")
         return jsonify({'message': 'Stock removed'})
 
     return jsonify({'error': 'Insufficient stock available'}), 400
@@ -131,6 +118,9 @@ def get_history():
 @app.route('/')
 def home():
     return "Office Stock Cloud Backend is Running 🚀"
+
+# Vercel needs the app object
+app = app
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
