@@ -74,20 +74,23 @@ if st.sidebar.button("Logout"):
     st.session_state.logged_in = False
     st.rerun()
 
-# ---------------- DASHBOARD ---------------- #
+# ---------------- DASHBOARD DATA FETCH ---------------- #
 st.title("🏢 Office Stock Manager")
 
 with st.spinner('Fetching cloud data...'):
     stocks = get_stocks()
     history = get_history()
 
-# CRITICAL FIX: Always initialize df_stocks to avoid NameError
+# --- INITIALIZE DATAFRAMES (Prevents NameError) ---
 df_stocks = pd.DataFrame(columns=['name', 'quantity', 'category'])
 df_history = pd.DataFrame(columns=['date_time', 'stock_name', 'quantity', 'person'])
 
 if history:
     df_history = pd.DataFrame(history)
-    df_history['date_time'] = pd.to_datetime(df_history['date_time']).dt.strftime('%Y-%m-%d %H:%M')
+    # Convert UTC/ISO string to Pandas Datetime
+    df_history['date_time'] = pd.to_datetime(df_history['date_time'])
+    # Format for IST Display: 12-hour clock with AM/PM
+    df_history['display_time'] = df_history['date_time'].dt.strftime('%d %b, %I:%M %p')
     df_history['stock_name'] = df_history['stock_name'].str.title()
 
 # ---------------- MAIN CONTENT ---------------- #
@@ -96,21 +99,24 @@ col_left, col_right = st.columns([2, 1.2])
 with col_left:
     st.subheader("📦 Current Stock")
     
-    # DOWNLOAD SECTION
+    # DOWNLOAD TRANSACTION REPORT
     if not df_history.empty:
-        csv = df_history.to_csv(index=False).encode('utf-8')
+        # Create CSV content from the history data
+        csv_data = df_history[['date_time', 'stock_name', 'quantity', 'person']].to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📥 Download Transaction History (CSV)",
-            data=csv,
-            file_name=f"office_stock_report_{datetime.now().strftime('%Y%m%d')}.csv",
+            label="📥 Download Transaction Report (CSV)",
+            data=csv_data,
+            file_name=f"stock_report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime='text/csv',
         )
 
     if not stocks:
-        st.info("No items found.")
+        st.info("No items found. Database is empty.")
     else:
         df_raw = pd.DataFrame(stocks)
+        # Normalize for grouping
         df_raw['name'] = df_raw['name'].astype(str).str.strip().str.lower()
+        # Merge duplicates and sum quantities
         df_stocks = df_raw.groupby('name').agg({'quantity': 'sum', 'category': 'first'}).reset_index()
 
         search = st.text_input("🔍 Search items...", placeholder="e.g. Battery").strip().lower()
@@ -121,28 +127,39 @@ with col_left:
         for _, row in filtered.iterrows():
             q = row['quantity']
             display_name = row['name'].title()
+            
+            # Status styling
             bg_color = "#d4edda" if q > 5 else "#fff3cd" if q > 0 else "#f8d7da"
             border = "green" if q > 5 else "orange" if q > 0 else "red"
             
             st.markdown(f"""
                 <div style="background-color: {bg_color}; padding: 15px; border-radius: 8px; 
                             border-left: 8px solid {border}; margin-bottom: 10px; color: black;">
-                    <h4 style="margin:0;">{display_name} <small style="color: #444;">({row['category']})</small></h4>
-                    <p style="font-size: 20px; font-weight: bold; margin: 5px 0;">Total Qty: {q}</p>
+                    <div style="display: flex; justify-content: space-between;">
+                        <h4 style="margin:0;">{display_name} <small style="color: #444;">({row['category']})</small></h4>
+                        <span style="font-size: 1.2em; font-weight: bold;">{q}</span>
+                    </div>
+                    <p style="margin: 5px 0 0 0; font-size: 0.9em; color: #555;">Available Quantity</p>
                 </div>
             """, unsafe_allow_html=True)
 
 with col_right:
     st.subheader("📋 Recent Transactions")
     if not df_history.empty:
-        # Show specific columns requested: Time, Product, Qty, Person
+        # Show specific columns in the requested order
         st.dataframe(
-            df_history[['date_time', 'stock_name', 'quantity', 'person']], 
+            df_history[['display_time', 'stock_name', 'quantity', 'person']], 
             height=500, 
-            use_container_width=True
+            use_container_width=True,
+            column_config={
+                "display_time": "Time (IST)",
+                "stock_name": "Product",
+                "quantity": "Qty",
+                "person": "Staff"
+            }
         )
     else:
-        st.write("No transactions logged.")
+        st.write("No history available.")
 
 # ---------------- ACTIONS (TABS) ---------------- #
 st.markdown("---")
@@ -174,12 +191,21 @@ with t2:
         staff = c1.selectbox("Person", PERSON_LIST + ["Other"])
         if staff == "Other": staff = st.text_input("Enter Name")
         
+        # Pull clean list of items for the dropdown
         available_names = sorted(df_stocks['name'].tolist()) if not df_stocks.empty else []
         target_item = c2.selectbox("Select Item", available_names, format_func=lambda x: x.title())
         remove_qty = c3.number_input("Quantity to Remove", min_value=1)
         
         if st.form_submit_button("Confirm Removal"):
             if target_item:
-                payload = {"name": target_item, "quantity": int(remove_qty), "person": staff, "role": st.session_state.role}
-                requests.post(f"{API_BASE}/stocks/remove", json=payload, timeout=15)
-                st.rerun()
+                payload = {
+                    "name": target_item, 
+                    "quantity": int(remove_qty), 
+                    "person": staff, 
+                    "role": st.session_state.role
+                }
+                res = requests.post(f"{API_BASE}/stocks/remove", json=payload, timeout=15)
+                if res.status_code == 200:
+                    st.rerun()
+                else:
+                    st.error(res.json().get('error', 'Error removing stock'))
