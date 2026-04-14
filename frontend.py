@@ -55,7 +55,7 @@ def get_history():
 
 # ---------------- SIDEBAR & RESET ---------------- #
 st.sidebar.title("Settings")
-st.sidebar.info(f"User Role: **{st.session_state.role.upper() if st.session_state.role else 'NONE'}**")
+st.sidebar.info(f"User: **{st.session_state.role.upper() if st.session_state.role else 'NONE'}**")
 
 if st.session_state.role == "admin":
     st.sidebar.markdown("---")
@@ -83,31 +83,31 @@ with st.spinner('Fetching cloud data...'):
 
 # --- INITIALIZE DATAFRAMES (Robust Version) ---
 df_stocks = pd.DataFrame(columns=['name', 'quantity', 'category'])
-df_history = pd.DataFrame(columns=['date_time', 'stock_name', 'quantity', 'person'])
+df_history = pd.DataFrame(columns=['date_time', 'stock_name', 'action', 'quantity', 'person'])
 
 if history:
     df_history = pd.DataFrame(history)
-    # FIX: errors='coerce' turns invalid dates into NaT instead of crashing
+    # Robust date conversion
     df_history['date_time'] = pd.to_datetime(df_history['date_time'], errors='coerce')
-    # Remove rows where date_time could not be parsed
     df_history = df_history.dropna(subset=['date_time'])
     
     if not df_history.empty:
-        # Sort by newest first
         df_history = df_history.sort_values(by='date_time', ascending=False)
-        # Format for IST Display
         df_history['display_time'] = df_history['date_time'].dt.strftime('%d %b, %I:%M %p')
         df_history['stock_name'] = df_history['stock_name'].str.title()
+        # Default action to REMOVE if missing from old data
+        if 'action' not in df_history.columns:
+            df_history['action'] = 'REMOVE'
 
 # ---------------- MAIN CONTENT ---------------- #
-col_left, col_right = st.columns([2, 1.2])
+col_left, col_right = st.columns([2, 1.3])
 
 with col_left:
     st.subheader("📦 Current Stock")
     
-    # DOWNLOAD TRANSACTION REPORT
     if not df_history.empty:
-        csv_data = df_history[['date_time', 'stock_name', 'quantity', 'person']].to_csv(index=False).encode('utf-8')
+        # Exporting full history including ADD/REMOVE actions
+        csv_data = df_history[['date_time', 'stock_name', 'action', 'quantity', 'person']].to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download Transaction Report (CSV)",
             data=csv_data,
@@ -130,7 +130,6 @@ with col_left:
         for _, row in filtered.iterrows():
             q = row['quantity']
             display_name = row['name'].title()
-            
             bg_color = "#d4edda" if q > 5 else "#fff3cd" if q > 0 else "#f8d7da"
             border = "green" if q > 5 else "orange" if q > 0 else "red"
             
@@ -141,22 +140,23 @@ with col_left:
                         <h4 style="margin:0;">{display_name} <small style="color: #444;">({row['category']})</small></h4>
                         <span style="font-size: 1.2em; font-weight: bold;">{q}</span>
                     </div>
-                    <p style="margin: 5px 0 0 0; font-size: 0.9em; color: #555;">Available Quantity</p>
                 </div>
             """, unsafe_allow_html=True)
 
 with col_right:
     st.subheader("📋 Recent Transactions")
     if not df_history.empty:
+        # Added 'action' column to the view
         st.dataframe(
-            df_history[['display_time', 'stock_name', 'quantity', 'person']], 
+            df_history[['display_time', 'stock_name', 'action', 'quantity', 'person']], 
             height=500, 
             use_container_width=True,
             column_config={
                 "display_time": "Time (IST)",
                 "stock_name": "Product",
+                "action": "Action",
                 "quantity": "Qty",
-                "person": "Staff"
+                "person": "User/Staff"
             }
         )
     else:
@@ -169,6 +169,7 @@ PERSON_LIST = ["Abul", "Balaji", "Vibin"]
 if st.session_state.role == "admin":
     t1, t2 = st.tabs(["➕ Add Stock", "➖ Remove Stock"])
 else:
+    # Users only see the Remove tab
     t2 = st.tabs(["➖ Remove Stock"])[0]
     t1 = None
 
@@ -178,11 +179,16 @@ if t1:
             c1, c2, c3 = st.columns(3)
             new_item_name = c1.text_input("Item Name")
             new_item_qty = c2.number_input("Quantity to Add", min_value=1)
-            new_item_cat = c3.selectbox("Category", ["Spares", "Electronics", "General"])
+            new_item_cat = c3.selectbox("Category", ["Stationery", "Electronics", "Pantry", "General"])
             
             if st.form_submit_button("Add to Cloud"):
                 if new_item_name:
-                    payload = {"name": new_item_name.strip().lower(), "quantity": int(new_item_qty), "category": new_item_cat, "role": st.session_state.role}
+                    payload = {
+                        "name": new_item_name.strip().lower(), 
+                        "quantity": int(new_item_qty), 
+                        "category": new_item_cat, 
+                        "role": st.session_state.role
+                    }
                     requests.post(f"{API_BASE}/stocks", json=payload, timeout=15)
                     st.rerun()
 
