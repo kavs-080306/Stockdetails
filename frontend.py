@@ -157,7 +157,7 @@ if t2:
         with st.form("new_product_form"):
             new_name = st.text_input("New Product Name")
             new_qty = st.number_input("Initial Quantity", min_value=1)
-            new_cat = st.selectbox("Category", ["Stationery", "Electronics", "Pantry", "General"])
+            new_cat = st.selectbox("Category", ["Office Supplies","Electronics", "General"])
             if st.form_submit_button("Register New Product"):
                 if new_name:
                     payload = {"name": new_name.strip().lower(), "quantity": int(new_qty), "category": new_cat, "role": "admin"}
