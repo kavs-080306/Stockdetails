@@ -179,7 +179,7 @@ if t1:
             c1, c2, c3 = st.columns(3)
             new_item_name = c1.text_input("Item Name")
             new_item_qty = c2.number_input("Quantity to Add", min_value=1)
-            new_item_cat = c3.selectbox("Category", ["Stationery", "Electronics", "Pantry", "General"])
+            new_item_cat = c3.selectbox("Category", ["Office supplies", "Electronics", "General"])
             
             if st.form_submit_button("Add to Cloud"):
                 if new_item_name:
