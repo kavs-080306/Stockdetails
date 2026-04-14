@@ -62,6 +62,7 @@ def handle_stocks():
         # Capture current time in IST
         current_time_ist = datetime.now(IST).isoformat()
 
+        # 1. Update/Add the stock count
         stocks_col.update_one(
             {"name": item_name},
             {
@@ -73,7 +74,17 @@ def handle_stocks():
             },
             upsert=True
         )
-        return jsonify({'message': 'Stock updated'}), 201
+
+        # 2. LOG THE ADDITION TO HISTORY
+        history_col.insert_one({
+            'date_time': current_time_ist,
+            'stock_name': item_name,
+            'quantity': item_qty,
+            'person': 'Admin (Refill)', 
+            'action': 'ADD'
+        })
+
+        return jsonify({'message': 'Stock updated and logged'}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -89,7 +100,6 @@ def remove_stock():
     item = stocks_col.find_one({"name": name})
     
     if item and item['quantity'] >= qty_to_remove:
-        # Capture current time in IST
         current_time_ist = datetime.now(IST).isoformat()
 
         stocks_col.update_one(
@@ -97,6 +107,7 @@ def remove_stock():
             {"$inc": {"quantity": -qty_to_remove}}
         )
 
+        # LOG THE REMOVAL TO HISTORY
         history_col.insert_one({
             'date_time': current_time_ist,
             'stock_name': name,
@@ -107,6 +118,7 @@ def remove_stock():
         return jsonify({'message': 'Stock removed'})
 
     return jsonify({'error': 'Insufficient stock'}), 400
+
 
 @app.route('/api/history', methods=['GET'])
 def get_history():
