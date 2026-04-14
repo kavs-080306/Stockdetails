@@ -156,7 +156,7 @@ if t2:
         st.write("Use this to register a product that doesn't exist yet.")
         with st.form("new_product_form"):
             new_name = st.text_input("New Product Name")
-            new_qty = st.number_input("Initial Quantity", min_value=1)
+            new_qty = st.number_input("Initial Quantity", min_value=0)
             new_cat = st.selectbox("Category", ["Office Supplies","Electronics", "General"])
             if st.form_submit_button("Register New Product"):
                 if new_name:
