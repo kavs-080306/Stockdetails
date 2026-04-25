@@ -59,8 +59,11 @@ def handle_stocks():
         item_name = str(data['name']).strip().lower()
         item_qty = int(data['quantity'])
         
-        # Capture current time in IST
-        current_time_ist = datetime.now(IST).isoformat()
+        # Capture current time in IST or use custom date if provided
+        if data.get('custom_date'):
+            timestamp = data['custom_date']
+        else:
+            timestamp = datetime.now(IST).isoformat()
 
         # 1. Update/Add the stock count
         stocks_col.update_one(
@@ -69,7 +72,7 @@ def handle_stocks():
                 "$inc": {"quantity": item_qty},
                 "$set": {
                     "category": data.get('category', 'General'),
-                    "updatedAt": current_time_ist
+                    "updatedAt": timestamp
                 }
             },
             upsert=True
@@ -77,7 +80,7 @@ def handle_stocks():
 
         # 2. LOG THE ADDITION TO HISTORY
         history_col.insert_one({
-            'date_time': current_time_ist,
+            'date_time': timestamp,
             'stock_name': item_name,
             'quantity': item_qty,
             'person': 'Admin (Refill)', 
@@ -100,7 +103,11 @@ def remove_stock():
     item = stocks_col.find_one({"name": name})
     
     if item and item['quantity'] >= qty_to_remove:
-        current_time_ist = datetime.now(IST).isoformat()
+        # Use custom date if provided, else use current IST time
+        if data.get('custom_date'):
+            timestamp = data['custom_date']
+        else:
+            timestamp = datetime.now(IST).isoformat()
 
         stocks_col.update_one(
             {"name": name},
@@ -109,7 +116,7 @@ def remove_stock():
 
         # LOG THE REMOVAL TO HISTORY
         history_col.insert_one({
-            'date_time': current_time_ist,
+            'date_time': timestamp,
             'stock_name': name,
             'quantity': qty_to_remove,
             'person': data.get('person', 'Unknown'),
