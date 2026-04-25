@@ -4,14 +4,22 @@ import hashlib
 from pymongo import MongoClient
 import certifi
 from datetime import datetime
-import pytz  # Handles timezone conversion
+import pytz
+import os
+from twilio.rest import Client
 
 app = Flask(__name__)
 CORS(app)
 
 # ---------------- CONFIGURATION ---------------- #
 MONGO_URI = "mongodb+srv://kavs080306_db_user:StockAdmin123@stockdetails.jrzc143.mongodb.net/?appName=StockDetails"
-IST = pytz.timezone('Asia/Kolkata')  # Define India Standard Time
+IST = pytz.timezone('Asia/Kolkata')
+
+# Twilio Config (Set these in Vercel Environment Variables for security)
+TWILIO_SID = os.environ.get("TWILIO_SID")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+ADMIN_WHATSAPP = "whatsapp:+919843060966"
+TWILIO_WHATSAPP_NUMBER = "whatsapp:+14155238886"
 
 try:
     client = MongoClient(MONGO_URI, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=5000)
@@ -28,6 +36,32 @@ users = [
     {"username": "Ganesh", "password": hashlib.sha256("gane333".encode()).hexdigest(), "role": "admin"},
     {"username": "Silver", "password": hashlib.sha256("sss1371".encode()).hexdigest(), "role": "user"}
 ]
+
+# ---------------- HELPERS ---------------- #
+
+def send_whatsapp_alert(item_name, remaining_qty):
+    """Triggers a WhatsApp message via Twilio."""
+    if not TWILIO_SID or not TWILIO_AUTH_TOKEN:
+        print("⚠️ Twilio credentials missing. Notification skipped.")
+        return
+    
+    try:
+        twilio_client = Client(TWILIO_SID, TWILIO_AUTH_TOKEN)
+        body_text = (
+            f"📦 *LOW STOCK ALERT*\n\n"
+            f"Item: *{item_name.title()}*\n"
+            f"Available: *{remaining_qty}*\n"
+            f"Status: Below Threshold (3)\n\n"
+            f"Please arrange for a refill."
+        )
+        twilio_client.messages.create(
+            from_=TWILIO_WHATSAPP_NUMBER,
+            body=body_text,
+            to=ADMIN_WHATSAPP
+        )
+        print(f"✅ WhatsApp alert sent for {item_name}")
+    except Exception as e:
+        print(f"❌ Twilio Error: {e}")
 
 # ---------------- ROUTES ---------------- #
 
@@ -59,13 +93,11 @@ def handle_stocks():
         item_name = str(data['name']).strip().lower()
         item_qty = int(data['quantity'])
         
-        # Capture current time in IST or use custom date if provided
         if data.get('custom_date'):
             timestamp = data['custom_date']
         else:
             timestamp = datetime.now(IST).isoformat()
 
-        # 1. Update/Add the stock count
         stocks_col.update_one(
             {"name": item_name},
             {
@@ -78,7 +110,6 @@ def handle_stocks():
             upsert=True
         )
 
-        # 2. LOG THE ADDITION TO HISTORY
         history_col.insert_one({
             'date_time': timestamp,
             'stock_name': item_name,
@@ -103,7 +134,6 @@ def remove_stock():
     item = stocks_col.find_one({"name": name})
     
     if item and item['quantity'] >= qty_to_remove:
-        # Use custom date if provided, else use current IST time
         if data.get('custom_date'):
             timestamp = data['custom_date']
         else:
@@ -114,7 +144,6 @@ def remove_stock():
             {"$inc": {"quantity": -qty_to_remove}}
         )
 
-        # LOG THE REMOVAL TO HISTORY
         history_col.insert_one({
             'date_time': timestamp,
             'stock_name': name,
@@ -122,10 +151,15 @@ def remove_stock():
             'person': data.get('person', 'Unknown'),
             'action': 'REMOVE'
         })
+
+        # --- LOW STOCK CHECK ---
+        updated_item = stocks_col.find_one({"name": name})
+        if updated_item and updated_item['quantity'] < 3:
+            send_whatsapp_alert(name, updated_item['quantity'])
+
         return jsonify({'message': 'Stock removed'})
 
     return jsonify({'error': 'Insufficient stock'}), 400
-
 
 @app.route('/api/history', methods=['GET'])
 def get_history():
@@ -143,9 +177,6 @@ def clear_database():
         return jsonify({"message": "Database cleared"}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-# Vercel app object
-app = app
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
