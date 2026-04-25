@@ -6,3 +6,9 @@ pymongo
 certifi
 dnspython
 pytz
+twilio
+pytz
+certifi
+pymongo
+flask
+flask-cors
