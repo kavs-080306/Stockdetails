@@ -104,32 +104,35 @@ if stocks:
 col_left, col_right = st.columns([1.8, 1.4])
 
 with col_left:
-    st.subheader("📦 Current Stock")
+    st.subheader("📦 Current Stock Status")
     if not df_history.empty:
         csv_data = df_history[['date_time', 'stock_name', 'action', 'quantity', 'person']].to_csv(index=False).encode('utf-8')
-        st.download_button(label="📥 Download Report", data=csv_data, file_name=f"report_{datetime.now().strftime('%Y%m%d')}.csv")
+        st.download_button(label="📥 Download Full Report", data=csv_data, file_name=f"report_{datetime.now().strftime('%Y%m%d')}.csv")
 
     if df_stocks.empty:
         st.info("No items found.")
     else:
-        search = st.text_input("🔍 Search stock...", key="search").strip().lower()
+        search = st.text_input("🔍 Filter items...", key="search").strip().lower()
         filtered = df_stocks if not search else df_stocks[df_stocks['name'].str.contains(search)]
         for _, row in filtered.iterrows():
             q = row['quantity']
-            bg = "#d4edda" if q > 5 else "#fff3cd" if q > 0 else "#f8d7da"
-            st.markdown(f'<div style="background-color: {bg}; padding: 12px; border-radius: 8px; margin-bottom: 8px; color: black; border-left: 5px solid gray;"><b>{row["name"].title()}</b> ({row["category"]}): <b>{q}</b></div>', unsafe_allow_html=True)
+            # Color coding: Red for < 3 (triggers alert), Yellow for < 10, Green otherwise
+            bg = "#f8d7da" if q < 3 else "#fff3cd" if q < 10 else "#d4edda"
+            st.markdown(f'<div style="background-color: {bg}; padding: 12px; border-radius: 8px; margin-bottom: 8px; color: black; border-left: 5px solid #555;"><b>{row["name"].title()}</b> ({row["category"]}): <b>{q}</b></div>', unsafe_allow_html=True)
 
 with col_right:
-    st.subheader("📋 Recent History")
+    st.subheader("📋 Transaction History")
     if not df_history.empty:
         st.dataframe(df_history[['display_time', 'stock_name', 'action', 'quantity', 'person']], height=450, use_container_width=True)
+    else:
+        st.write("No logs available yet.")
 
 # ---------------- ACTIONS (TABS) ---------------- #
 st.markdown("---")
 PERSON_LIST = ["Abul", "Balaji", "Vibin"]
 
 if st.session_state.role == "admin":
-    t1, t2, t3 = st.tabs(["🔄 Update Stock", "➕ Add New Product", "➖ Remove Stock"])
+    t1, t2, t3 = st.tabs(["🔄 Update Existing", "➕ Add New Type", "➖ Remove Stock"])
 else:
     t3 = st.tabs(["➖ Remove Stock"])[0]
     t1 = t2 = None
@@ -139,15 +142,12 @@ if t1:
     with t1:
         with st.form("refill_form"):
             available_names = sorted(df_stocks['name'].tolist()) if not df_stocks.empty else []
-            refill_item = st.selectbox("Select Product", available_names, format_func=lambda x: x.title())
+            refill_item = st.selectbox("Select Item", available_names, format_func=lambda x: x.title())
             refill_qty = st.number_input("Quantity to Add", min_value=1)
-            
-            # DATE PICKER (Always Visible)
-            selected_date = st.date_input("Entry Date", value=date.today(), key="update_date_visible")
+            selected_date = st.date_input("Entry Date", value=date.today(), key="upd_date")
             
             if st.form_submit_button("Update Stock"):
                 if refill_item:
-                    # Merge selected date with current time for precise logging
                     final_dt = datetime.combine(selected_date, datetime.now().time()).isoformat()
                     payload = {
                         "name": refill_item, 
@@ -158,30 +158,33 @@ if t1:
                     requests.post(f"{API_BASE}/stocks", json=payload)
                     st.rerun()
 
-# TAB 2: ADD NEW PRODUCT
+# TAB 2: ADD NEW PRODUCT TYPE
 if t2:
     with t2:
         with st.form("new_product_form"):
             new_name = st.text_input("New Product Name")
             new_qty = st.number_input("Initial Quantity", min_value=0)
-            new_cat = st.selectbox("Category", ["Office Supplies","Electronics", "General"])
-            if st.form_submit_button("Register New Product"):
+            new_cat = st.selectbox("Category", ["Office Supplies","Electronics", "Catering", "General"])
+            if st.form_submit_button("Register Product"):
                 if new_name:
-                    payload = {"name": new_name.strip().lower(), "quantity": int(new_qty), "category": new_cat, "role": "admin"}
+                    payload = {
+                        "name": new_name.strip().lower(), 
+                        "quantity": int(new_qty), 
+                        "category": new_cat, 
+                        "role": "admin"
+                    }
                     requests.post(f"{API_BASE}/stocks", json=payload)
                     st.rerun()
 
 # TAB 3: REMOVE STOCK
 with t3:
     with st.form("remove_form"):
-        staff = st.selectbox("Person", PERSON_LIST + ["Other"])
+        staff = st.selectbox("Staff Member", PERSON_LIST + ["Other"])
         if staff == "Other": staff = st.text_input("Enter Name")
         available_names = sorted(df_stocks['name'].tolist()) if not df_stocks.empty else []
-        target_item = st.selectbox("Select Item", available_names, format_func=lambda x: x.title(), key="remove_select")
-        rem_qty = st.number_input("Quantity to Remove", min_value=1)
-        
-        # DATE PICKER (Always Visible)
-        selected_date_rem = st.date_input("Entry Date", value=date.today(), key="remove_date_visible")
+        target_item = st.selectbox("Select Item", available_names, format_func=lambda x: x.title(), key="rem_sel")
+        rem_qty = st.number_input("Quantity to Take", min_value=1)
+        selected_date_rem = st.date_input("Entry Date", value=date.today(), key="rem_date")
             
         if st.form_submit_button("Confirm Removal"):
             if target_item:
@@ -193,5 +196,9 @@ with t3:
                     "role": st.session_state.role, 
                     "custom_date": final_dt_rem
                 }
-                requests.post(f"{API_BASE}/stocks/remove", json=payload)
-                st.rerun()
+                res = requests.post(f"{API_BASE}/stocks/remove", json=payload)
+                if res.status_code == 200:
+                    st.success("Stock updated. Alert sent if low!")
+                    st.rerun()
+                else:
+                    st.error(res.json().get('error', 'Update failed'))
