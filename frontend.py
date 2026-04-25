@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 
 # 1. YOUR VERCEL URL
 API_BASE = "https://stockdetails.vercel.app/api"
@@ -139,21 +139,34 @@ else:
 # TAB 1: UPDATE EXISTING STOCK (DROPDOWN)
 if t1:
     with t1:
-        st.write("Use this to refill items already in the system.")
+        st.write("Refill items already in the system.")
         with st.form("refill_form"):
             available_names = sorted(df_stocks['name'].tolist()) if not df_stocks.empty else []
             refill_item = st.selectbox("Select Product to Refill", available_names, format_func=lambda x: x.title())
             refill_qty = st.number_input("Quantity to Add", min_value=1)
+            
+            # DATE OPTION
+            is_today = st.checkbox("Today", value=True, key="refill_today")
+            selected_date = date.today()
+            if not is_today:
+                selected_date = st.date_input("Select Date", value=date.today(), key="ref_date_input")
+            
             if st.form_submit_button("Update Stock"):
                 if refill_item:
-                    payload = {"name": refill_item, "quantity": int(refill_qty), "role": "admin"}
+                    final_dt = datetime.combine(selected_date, datetime.now().time()).isoformat()
+                    payload = {
+                        "name": refill_item, 
+                        "quantity": int(refill_qty), 
+                        "role": "admin",
+                        "custom_date": final_dt
+                    }
                     requests.post(f"{API_BASE}/stocks", json=payload)
                     st.rerun()
 
 # TAB 2: ADD BRAND NEW PRODUCT (TEXT INPUT)
 if t2:
     with t2:
-        st.write("Use this to register a product that doesn't exist yet.")
+        st.write("Register a product that doesn't exist yet.")
         with st.form("new_product_form"):
             new_name = st.text_input("New Product Name")
             new_qty = st.number_input("Initial Quantity", min_value=0)
@@ -172,8 +185,22 @@ with t3:
         available_names = sorted(df_stocks['name'].tolist()) if not df_stocks.empty else []
         target_item = st.selectbox("Select Item", available_names, format_func=lambda x: x.title(), key="remove_select")
         rem_qty = st.number_input("Quantity to Remove", min_value=1)
+        
+        # DATE OPTION
+        is_today_rem = st.checkbox("Today", value=True, key="remove_today")
+        selected_date_rem = date.today()
+        if not is_today_rem:
+            selected_date_rem = st.date_input("Select Date", value=date.today(), key="rem_date_input")
+            
         if st.form_submit_button("Confirm Removal"):
             if target_item:
-                payload = {"name": target_item, "quantity": int(rem_qty), "person": staff, "role": st.session_state.role}
+                final_dt_rem = datetime.combine(selected_date_rem, datetime.now().time()).isoformat()
+                payload = {
+                    "name": target_item, 
+                    "quantity": int(rem_qty), 
+                    "person": staff, 
+                    "role": st.session_state.role,
+                    "custom_date": final_dt_rem
+                }
                 requests.post(f"{API_BASE}/stocks/remove", json=payload)
                 st.rerun()
