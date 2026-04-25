@@ -15,7 +15,7 @@ CORS(app)
 MONGO_URI = "mongodb+srv://kavs080306_db_user:StockAdmin123@stockdetails.jrzc143.mongodb.net/?appName=StockDetails"
 IST = pytz.timezone('Asia/Kolkata')
 
-# Twilio Config (Set these in Vercel Environment Variables for security)
+# Twilio Credentials (Retrieved from Vercel Environment Variables)
 TWILIO_SID = os.environ.get("TWILIO_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 ADMIN_WHATSAPP = "whatsapp:+919843060966"
@@ -39,27 +39,35 @@ users = [
 
 # ---------------- HELPERS ---------------- #
 
-def send_whatsapp_alert(item_name, remaining_qty):
-    """Triggers a WhatsApp message via Twilio."""
+def send_whatsapp_alert(item_name, remaining_qty, category="General", person="Unknown"):
+    """Sends a professionally formatted, customized WhatsApp alert."""
     if not TWILIO_SID or not TWILIO_AUTH_TOKEN:
-        print("⚠️ Twilio credentials missing. Notification skipped.")
+        print("⚠️ Twilio credentials missing. Alert skipped.")
         return
     
     try:
         twilio_client = Client(TWILIO_SID, TWILIO_AUTH_TOKEN)
+        
+        # --- CUSTOMIZED MESSAGE BODY ---
         body_text = (
-            f"📦 *LOW STOCK ALERT*\n\n"
-            f"Item: *{item_name.title()}*\n"
-            f"Available: *{remaining_qty}*\n"
-            f"Status: Below Threshold (3)\n\n"
-            f"Please arrange for a refill."
+            f"🚨 *STOCK DEPLETION NOTICE*\n"
+            f"----------------------------------\n"
+            f"📦 *Product:* {item_name.title()}\n"
+            f"🏷️ *Category:* {category}\n"
+            f"🔢 *Available Now:* {remaining_qty}\n"
+            f"👤 *Removed By:* {person}\n"
+            f"⏰ *Time:* {datetime.now(IST).strftime('%I:%M %p, %d %b')}\n"
+            f"----------------------------------\n"
+            f"⚠️ *The inventory is critically low.* "
+            f"Please arrange for a restock."
         )
+        
         twilio_client.messages.create(
             from_=TWILIO_WHATSAPP_NUMBER,
             body=body_text,
             to=ADMIN_WHATSAPP
         )
-        print(f"✅ WhatsApp alert sent for {item_name}")
+        print(f"✅ Customized WhatsApp alert sent for {item_name}")
     except Exception as e:
         print(f"❌ Twilio Error: {e}")
 
@@ -92,11 +100,7 @@ def handle_stocks():
     try:
         item_name = str(data['name']).strip().lower()
         item_qty = int(data['quantity'])
-        
-        if data.get('custom_date'):
-            timestamp = data['custom_date']
-        else:
-            timestamp = datetime.now(IST).isoformat()
+        timestamp = data.get('custom_date') or datetime.now(IST).isoformat()
 
         stocks_col.update_one(
             {"name": item_name},
@@ -125,8 +129,7 @@ def handle_stocks():
 @app.route('/api/stocks/remove', methods=['POST'])
 def remove_stock():
     data = request.json
-    role = data.get('role')
-    if role not in ['admin', 'user']:
+    if data.get('role') not in ['admin', 'user']:
         return jsonify({'error': 'Unauthorized'}), 403
 
     name = str(data['name']).strip().lower()
@@ -134,10 +137,7 @@ def remove_stock():
     item = stocks_col.find_one({"name": name})
     
     if item and item['quantity'] >= qty_to_remove:
-        if data.get('custom_date'):
-            timestamp = data['custom_date']
-        else:
-            timestamp = datetime.now(IST).isoformat()
+        timestamp = data.get('custom_date') or datetime.now(IST).isoformat()
 
         stocks_col.update_one(
             {"name": name},
@@ -152,10 +152,15 @@ def remove_stock():
             'action': 'REMOVE'
         })
 
-        # --- LOW STOCK CHECK ---
+        # --- LOW STOCK ALERT CHECK ---
         updated_item = stocks_col.find_one({"name": name})
         if updated_item and updated_item['quantity'] < 3:
-            send_whatsapp_alert(name, updated_item['quantity'])
+            send_whatsapp_alert(
+                item_name=name, 
+                remaining_qty=updated_item['quantity'],
+                category=updated_item.get('category', 'General'),
+                person=data.get('person', 'Unknown')
+            )
 
         return jsonify({'message': 'Stock removed'})
 
