@@ -139,17 +139,20 @@ else:
 # TAB 1: UPDATE EXISTING STOCK (DROPDOWN)
 if t1:
     with t1:
-        st.write("Refill items already in the system.")
+        st.write("Add more stock to existing items.")
         with st.form("refill_form"):
             available_names = sorted(df_stocks['name'].tolist()) if not df_stocks.empty else []
             refill_item = st.selectbox("Select Product to Refill", available_names, format_func=lambda x: x.title())
             refill_qty = st.number_input("Quantity to Add", min_value=1)
             
-            # DATE OPTION
-            is_today = st.checkbox("Today", value=True, key="refill_today")
+            # --- DATE PICKER SECTION ---
+            st.write("**Date of Entry:**")
+            d_col1, d_col2 = st.columns(2)
+            is_today = d_col1.checkbox("Today", value=True, key="refill_today")
+            
             selected_date = date.today()
             if not is_today:
-                selected_date = st.date_input("Select Date", value=date.today(), key="ref_date_input")
+                selected_date = d_col2.date_input("Pick Date", value=date.today(), key="ref_date_input")
             
             if st.form_submit_button("Update Stock"):
                 if refill_item:
@@ -166,7 +169,7 @@ if t1:
 # TAB 2: ADD BRAND NEW PRODUCT (TEXT INPUT)
 if t2:
     with t2:
-        st.write("Register a product that doesn't exist yet.")
+        st.write("Register a completely new product.")
         with st.form("new_product_form"):
             new_name = st.text_input("New Product Name")
             new_qty = st.number_input("Initial Quantity", min_value=0)
@@ -186,11 +189,14 @@ with t3:
         target_item = st.selectbox("Select Item", available_names, format_func=lambda x: x.title(), key="remove_select")
         rem_qty = st.number_input("Quantity to Remove", min_value=1)
         
-        # DATE OPTION
-        is_today_rem = st.checkbox("Today", value=True, key="remove_today")
+        # --- DATE PICKER SECTION ---
+        st.write("**Date of Entry:**")
+        dr_col1, dr_col2 = st.columns(2)
+        is_today_rem = dr_col1.checkbox("Today", value=True, key="remove_today")
+        
         selected_date_rem = date.today()
         if not is_today_rem:
-            selected_date_rem = st.date_input("Select Date", value=date.today(), key="rem_date_input")
+            selected_date_rem = dr_col2.date_input("Pick Date", value=date.today(), key="rem_date_input")
             
         if st.form_submit_button("Confirm Removal"):
             if target_item:
