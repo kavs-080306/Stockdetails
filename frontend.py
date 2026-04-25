@@ -107,7 +107,7 @@ with col_left:
     st.subheader("📦 Current Stock")
     if not df_history.empty:
         csv_data = df_history[['date_time', 'stock_name', 'action', 'quantity', 'person']].to_csv(index=False).encode('utf-8')
-        st.download_button(label="📥 Download Report (CSV)", data=csv_data, file_name=f"report_{datetime.now().strftime('%Y%m%d')}.csv", mime='text/csv')
+        st.download_button(label="📥 Download Report", data=csv_data, file_name=f"report_{datetime.now().strftime('%Y%m%d')}.csv")
 
     if df_stocks.empty:
         st.info("No items found.")
@@ -123,8 +123,6 @@ with col_right:
     st.subheader("📋 Recent History")
     if not df_history.empty:
         st.dataframe(df_history[['display_time', 'stock_name', 'action', 'quantity', 'person']], height=450, use_container_width=True)
-    else:
-        st.write("No history available.")
 
 # ---------------- ACTIONS (TABS) ---------------- #
 st.markdown("---")
@@ -136,40 +134,33 @@ else:
     t3 = st.tabs(["➖ Remove Stock"])[0]
     t1 = t2 = None
 
-# TAB 1: UPDATE EXISTING STOCK (DROPDOWN)
+# TAB 1: UPDATE EXISTING STOCK
 if t1:
     with t1:
-        st.write("Add more stock to existing items.")
         with st.form("refill_form"):
             available_names = sorted(df_stocks['name'].tolist()) if not df_stocks.empty else []
-            refill_item = st.selectbox("Select Product to Refill", available_names, format_func=lambda x: x.title())
+            refill_item = st.selectbox("Select Product", available_names, format_func=lambda x: x.title())
             refill_qty = st.number_input("Quantity to Add", min_value=1)
             
-            # --- DATE PICKER SECTION ---
-            st.write("**Date of Entry:**")
-            d_col1, d_col2 = st.columns(2)
-            is_today = d_col1.checkbox("Today", value=True, key="refill_today")
-            
-            selected_date = date.today()
-            if not is_today:
-                selected_date = d_col2.date_input("Pick Date", value=date.today(), key="ref_date_input")
+            # DATE PICKER (Always Visible)
+            selected_date = st.date_input("Entry Date", value=date.today(), key="update_date_visible")
             
             if st.form_submit_button("Update Stock"):
                 if refill_item:
+                    # Merge selected date with current time for precise logging
                     final_dt = datetime.combine(selected_date, datetime.now().time()).isoformat()
                     payload = {
                         "name": refill_item, 
                         "quantity": int(refill_qty), 
-                        "role": "admin",
+                        "role": "admin", 
                         "custom_date": final_dt
                     }
                     requests.post(f"{API_BASE}/stocks", json=payload)
                     st.rerun()
 
-# TAB 2: ADD BRAND NEW PRODUCT (TEXT INPUT)
+# TAB 2: ADD NEW PRODUCT
 if t2:
     with t2:
-        st.write("Register a completely new product.")
         with st.form("new_product_form"):
             new_name = st.text_input("New Product Name")
             new_qty = st.number_input("Initial Quantity", min_value=0)
@@ -189,14 +180,8 @@ with t3:
         target_item = st.selectbox("Select Item", available_names, format_func=lambda x: x.title(), key="remove_select")
         rem_qty = st.number_input("Quantity to Remove", min_value=1)
         
-        # --- DATE PICKER SECTION ---
-        st.write("**Date of Entry:**")
-        dr_col1, dr_col2 = st.columns(2)
-        is_today_rem = dr_col1.checkbox("Today", value=True, key="remove_today")
-        
-        selected_date_rem = date.today()
-        if not is_today_rem:
-            selected_date_rem = dr_col2.date_input("Pick Date", value=date.today(), key="rem_date_input")
+        # DATE PICKER (Always Visible)
+        selected_date_rem = st.date_input("Entry Date", value=date.today(), key="remove_date_visible")
             
         if st.form_submit_button("Confirm Removal"):
             if target_item:
@@ -205,7 +190,7 @@ with t3:
                     "name": target_item, 
                     "quantity": int(rem_qty), 
                     "person": staff, 
-                    "role": st.session_state.role,
+                    "role": st.session_state.role, 
                     "custom_date": final_dt_rem
                 }
                 requests.post(f"{API_BASE}/stocks/remove", json=payload)
